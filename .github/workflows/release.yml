@@ -12,6 +12,7 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    environment: pypi
     steps:
       - id: release
         uses: google-github-actions/release-please-action@v4
