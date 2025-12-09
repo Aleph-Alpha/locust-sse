@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/Aleph-Alpha/locust-sse/compare/v0.1.0...v0.1.1) (2025-12-09)
+
+
+### Bug Fixes
+
+* add environment 'pypi' to release job ([9877aed](https://github.com/Aleph-Alpha/locust-sse/commit/9877aed633ada14ede5ea169f0dd8b011e86795f))
+
 ## 0.1.0 (2025-12-09)
 
 
