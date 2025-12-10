@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/Aleph-Alpha/locust-sse/compare/v0.1.1...v0.2.0) (2025-12-10)
+
+
+### Features
+
+* update metadata and version ([9a60bad](https://github.com/Aleph-Alpha/locust-sse/commit/9a60bad3094b11eb3037e3899d3d3dd44e87d434))
+
+
+### Bug Fixes
+
+* update setup-uv action SHA ([c32260a](https://github.com/Aleph-Alpha/locust-sse/commit/c32260a7408aebed976e02b6412f3d7737634443))
+
 ## [0.1.1](https://github.com/Aleph-Alpha/locust-sse/compare/v0.1.0...v0.1.1) (2025-12-09)
 
 
