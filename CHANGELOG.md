@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/Aleph-Alpha/locust-sse/compare/v0.3.0...v0.3.1) (2025-12-12)
+
+
+### Bug Fixes
+
+* replace requests-sse with custom implementation to fix reconnect behavior ([7891ba1](https://github.com/Aleph-Alpha/locust-sse/commit/7891ba1cdd02341ace6a628defed868088c1e434))
+
 ## [0.3.0](https://github.com/Aleph-Alpha/locust-sse/compare/v0.2.0...v0.3.0) (2025-12-10)
 
 
