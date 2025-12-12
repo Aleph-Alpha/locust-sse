@@ -1,12 +1,20 @@
 import json
 import logging
 import time
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Generator
 
 from locust import HttpUser
-from requests_sse import EventSource
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SSEMessage:
+    type: str = "message"
+    data: str = ""
+    id: str = ""
+    retry: int | None = None
 
 
 class SSEUser(HttpUser):
@@ -17,6 +25,7 @@ class SSEUser(HttpUser):
         url: str,
         params: dict[str, Any],
         prompt: str,
+        method: str = "GET",
         request_name: str = "sse_request",
     ) -> None:
         """
@@ -26,6 +35,7 @@ class SSEUser(HttpUser):
             url: The URL to connect to.
             params: Parameters for the request (headers, etc.).
             prompt: The input prompt (for token counting).
+            method: The HTTP method to use (e.g. GET, POST). Defaults to GET.
             request_name: Name for Locust metrics.
         """
         start_time = time.perf_counter()
@@ -47,14 +57,18 @@ class SSEUser(HttpUser):
             headers = params.get("headers", {})
             if not headers:
                 headers = self.client.headers.copy()
+            
+            headers["Accept"] = "text/event-stream"
+            headers["Cache-Control"] = "no-cache"
+            
+            request_params = {k: v for k, v in params.items() if k != "headers"}
+            request_params["headers"] = headers
+            request_params["stream"] = True
 
-            with EventSource(
-                url,
-                session=self.client,
-                headers=headers,
-                **{k: v for k, v in params.items() if k != "headers"},
-            ) as event_source:
-                for event in event_source:
+            with self.client.request(method, url, **request_params) as response:
+                response.raise_for_status()
+                
+                for event in self.parse_sse_events(response):
                     if event.type == "error":
                         raise Exception(f"SSE error event: {event.data}")
 
@@ -117,6 +131,57 @@ class SSEUser(HttpUser):
                 response_time=total_time,
                 response_length=len(response_content),
                 exception=None,
+            )
+
+    def parse_sse_events(self, response) -> Generator[SSEMessage, None, None]:
+        """
+        Parses SSE events from the response.
+        """
+        event_type = "message"
+        event_data = []
+        event_id = ""
+        
+        for line in response.iter_lines(decode_unicode=True):
+            if not line: # Empty line marks end of event
+                if event_data:
+                    yield SSEMessage(
+                        type=event_type,
+                        data="\n".join(event_data),
+                        id=event_id
+                    )
+                    # Reset for next event
+                    event_type = "message"
+                    event_data = []
+                    # event_id typically persists unless changed, but specification says:
+                    # "When a stream is open, the client must keep the last event ID string"
+                    # However, usually we just parse what's in the buffer for the current dispatch.
+                    # The ID is set by the 'id' field.
+                continue
+
+            if line.startswith(":"): # Comment
+                continue
+
+            if ":" in line:
+                field, value = line.split(":", 1)
+                value = value.lstrip()
+            else:
+                field, value = line, ""
+
+            if field == "event":
+                event_type = value
+            elif field == "data":
+                event_data.append(value)
+            elif field == "id":
+                event_id = value
+            elif field == "retry":
+                pass # We ignore retry since we don't reconnect
+
+        # Dispatch any remaining event in buffer (though proper SSE should end with newline)
+        if event_data:
+             yield SSEMessage(
+                type=event_type,
+                data="\n".join(event_data),
+                id=event_id
             )
 
     def count_tokens(self, text: str) -> int:

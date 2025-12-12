@@ -1,9 +1,8 @@
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from locust.env import Environment
-from requests_sse import MessageEvent
 
 from locust_sse.user import SSEUser
 
@@ -33,97 +32,113 @@ def test_handle_sse_request_success(sse_user):
     url = "http://example.com/sse"
     params = {}
 
-    events_data = [
-        MessageEvent(
-            type="message",
-            data=json.dumps({"type": "append", "text": "Hello"}),
-            origin="http://example.com",
-            last_event_id="1",
-        ),
-        MessageEvent(
-            type="message",
-            data=json.dumps({"type": "append", "text": " world"}),
-            origin="http://example.com",
-            last_event_id="2",
-        ),
-        MessageEvent(
-            type="message",
-            data=json.dumps({"type": "close"}),
-            origin="http://example.com",
-            last_event_id="3",
-        ),
+    # Mock response.iter_lines()
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.iter_lines.return_value = [
+        'data: {"type": "append", "text": "Hello"}',
+        "",
+        'data: {"type": "append", "text": " world"}',
+        "",
+        'data: {"type": "close"}',
+        "",
     ]
+    
+    sse_user.client.request.return_value.__enter__.return_value = mock_response
+    sse_user.handle_sse_request(url, params, prompt)
 
-    with patch("locust_sse.user.EventSource") as MockEventSource:
-        mock_source_instance = MockEventSource.return_value
-        mock_source_instance.__enter__.return_value = events_data
-        
-        sse_user.handle_sse_request(url, params, prompt)
+    # Verify metrics were fired
+    request_fire = sse_user.environment.events.request.fire
+    
+    request_fire.assert_any_call(
+        request_type="SSE",
+        name="sse_request_prompt_tokens",
+        response_time=0,
+        response_length=2,
+        exception=None,
+    )
 
-        # Verify metrics were fired
-        request_fire = sse_user.environment.events.request.fire
-        
-        # 1. Prompt tokens (2 tokens)
-        request_fire.assert_any_call(
-            request_type="SSE",
-            name="sse_request_prompt_tokens",
-            response_time=0,
-            response_length=2,
-            exception=None,
-        )
+    ttft_calls = [
+        c for c in request_fire.call_args_list 
+        if c.kwargs.get("name") == "sse_request_ttft"
+    ]
+    assert len(ttft_calls) == 1
 
-        # 2. TTFT (called once)
-        # We can't easily check the exact response_time, but we can check existence
-        ttft_calls = [
-            c for c in request_fire.call_args_list 
-            if c.kwargs.get("name") == "sse_request_ttft"
-        ]
-        assert len(ttft_calls) == 1
+    request_fire.assert_any_call(
+        request_type="SSE",
+        name="sse_request_completion_tokens",
+        response_time=0,
+        response_length=2,
+        exception=None,
+    )
 
-        # 3. Completion tokens (2 tokens: "Hello", "world")
-        request_fire.assert_any_call(
-            request_type="SSE",
-            name="sse_request_completion_tokens",
-            response_time=0,
-            response_length=2,
-            exception=None,
-        )
-
-        # 4. Total request success
-        success_calls = [
-            c for c in request_fire.call_args_list 
-            if c.kwargs.get("name") == "sse_request" and not c.kwargs.get("exception")
-        ]
-        assert len(success_calls) == 1
+    success_calls = [
+        c for c in request_fire.call_args_list 
+        if c.kwargs.get("name") == "sse_request" and not c.kwargs.get("exception")
+    ]
+    assert len(success_calls) == 1
 
 
 def test_handle_sse_request_error(sse_user):
     prompt = "test"
     url = "http://example.com/sse"
     
-    # Mock error event
-    events_data = [
-        MessageEvent(
-            type="error",
-            data="Something went wrong",
-            origin="http://example.com",
-            last_event_id="1",
-        )
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.iter_lines.return_value = [
+        "event: error",
+        "data: Something went wrong",
+        "",
     ]
 
-    with patch("locust_sse.user.EventSource") as MockEventSource:
-        mock_source_instance = MockEventSource.return_value
-        mock_source_instance.__enter__.return_value = events_data
+    sse_user.client.request.return_value.__enter__.return_value = mock_response
 
-        sse_user.handle_sse_request(url, {}, prompt)
+    sse_user.handle_sse_request(url, {}, prompt)
 
-        request_fire = sse_user.environment.events.request.fire
-        
-        # Verify failure event
-        failure_calls = [
-            c for c in request_fire.call_args_list 
-            if c.kwargs.get("name") == "sse_request" and c.kwargs.get("exception")
-        ]
-        assert len(failure_calls) == 1
-        assert "SSE error event: Something went wrong" in str(failure_calls[0].kwargs["exception"])
+    request_fire = sse_user.environment.events.request.fire
+    
+    failure_calls = [
+        c for c in request_fire.call_args_list 
+        if c.kwargs.get("name") == "sse_request" and c.kwargs.get("exception")
+    ]
+    assert len(failure_calls) == 1
+    assert "SSE error event: Something went wrong" in str(failure_calls[0].kwargs["exception"])
 
+
+def test_no_reconnection_on_disconnect(sse_user):
+    """
+    Test that the client does NOT reconnect when the server closes the connection
+    unexpectedly or the stream ends. This ensures exactly 1 HTTP request per call.
+    """
+    prompt = "test"
+    url = "http://example.com/sse"
+    
+    # Mock response.iter_lines() to simulate a stream that ends (StopIteration)
+    # without sending a "close" event.
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    
+    # Simulate data followed by end of stream
+    mock_response.iter_lines.return_value = [
+        'data: {"type": "append", "text": "Some text"}',
+        "",
+        # Stream ends here
+    ]
+
+    sse_user.client.request.return_value.__enter__.return_value = mock_response
+
+    sse_user.handle_sse_request(url, {}, prompt)
+
+    # 1. Verify that client.request was called exactly ONCE
+    assert sse_user.client.request.call_count == 1
+
+    # 2. Verify that the task completed (metrics fired) despite no explicit "close" event
+    request_fire = sse_user.environment.events.request.fire
+    
+    success_calls = [
+        c for c in request_fire.call_args_list 
+        if c.kwargs.get("name") == "sse_request" and not c.kwargs.get("exception")
+    ]
+    # It should still be considered a successful request/chat termination 
+    # (or at least the function returns without error/looping)
+    assert len(success_calls) == 1
