@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/Aleph-Alpha/locust-sse/compare/v0.3.1...v0.4.0) (2025-12-12)
+
+
+### Features
+
+* add Go-based SSE server for E2E testing with TUI support ([803238d](https://github.com/Aleph-Alpha/locust-sse/commit/803238d84d29595d56f8fdf526c57a0048e9e48e))
+
 ## [0.3.1](https://github.com/Aleph-Alpha/locust-sse/compare/v0.3.0...v0.3.1) (2025-12-12)
 
 
