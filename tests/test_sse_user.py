@@ -129,10 +129,8 @@ def test_no_reconnection_on_disconnect(sse_user):
 
     sse_user.handle_sse_request(url, {}, prompt)
 
-    # 1. Verify that client.request was called exactly ONCE
     assert sse_user.client.request.call_count == 1
 
-    # 2. Verify that the task completed (metrics fired) despite no explicit "close" event
     request_fire = sse_user.environment.events.request.fire
     
     success_calls = [
